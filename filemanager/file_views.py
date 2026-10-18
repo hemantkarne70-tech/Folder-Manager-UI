@@ -109,6 +109,13 @@ class ManagedFileViewSet(viewsets.ModelViewSet):
             transaction.on_commit(lambda: stored_file.delete(save=False))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @action(detail=False, methods=["get"], url_path="storage-summary")
+    def storage_summary(self, request):
+        # Include trashed records: their bytes still occupy storage until permanent deletion.
+        from django.db.models import Sum
+        summary = ManagedFile.objects.filter(owner=request.user).aggregate(total=Sum("size"))
+        return Response({"used_bytes": summary["total"] or 0}, status=status.HTTP_200_OK)
+
     @action(detail=False, methods=["delete"], url_path="empty-trash")
     def empty_trash(self, request):
         trashed = ManagedFile.objects.filter(owner=request.user, is_trashed=True)

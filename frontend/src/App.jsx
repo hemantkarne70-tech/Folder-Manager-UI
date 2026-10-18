@@ -57,7 +57,27 @@ function FileGlyph({ type }) {
   return <Icon size={34} strokeWidth={1.7} />;
 }
 
-function Sidebar({ section, setSection, folders, activeFolder, setActiveFolder, onNewFolder, username, onLogout }) {
+function FolderTreeNode({ folder, folders, activeFolder, onOpen, depth = 0 }) {
+  const children = folders.filter(item => String(item.parent ?? "") === String(folder.id));
+  return (
+    <div className="folder-tree-node">
+      <button
+        className={`tree-item ${depth ? "tree-child" : ""} ${String(activeFolder) === String(folder.id) ? "selected" : ""}`}
+        style={{ paddingLeft: `${12 + depth * 15}px` }}
+        onClick={() => onOpen(folder.id)}
+        title={folder.name}
+      >
+        <Folder size={16} />
+        <span>{folder.name}</span>
+      </button>
+      {children.map(child => (
+        <FolderTreeNode key={child.id} folder={child} folders={folders} activeFolder={activeFolder} onOpen={onOpen} depth={depth + 1} />
+      ))}
+    </div>
+  );
+}
+
+function Sidebar({ section, setSection, folders, activeFolder, setActiveFolder, onNewFolder, username, onLogout, storageUsed = 0, storageCapacity = 500 * 1024 ** 3 }) {
   const items = [
     { id: "files", label: "My Files", icon: Folder },
     { id: "recent", label: "Recent", icon: Clock3 },
@@ -99,39 +119,24 @@ function Sidebar({ section, setSection, folders, activeFolder, setActiveFolder, 
         <span>Storage</span>
         <HardDrive size={17} />
       </div>
-      <div className="storage-bar"><span /></div>
+      <div className="storage-bar" aria-label="Storage usage">
+        <span style={{ width: `${Math.min(100, storageCapacity > 0 ? (storageUsed / storageCapacity) * 100 : 0)}%` }} />
+      </div>
       <div className="storage-caption">Private server storage</div>
-      <div className="storage-caption storage-used">Storage usage will be calculated</div>
+      <div className="storage-caption storage-used">{formatSize(storageUsed)} of {formatSize(storageCapacity)} used</div>
+      <div className="storage-caption storage-used">{formatSize(Math.max(0, storageCapacity - storageUsed))} available</div>
 
       <div className="sidebar-divider" />
       <div className="tree-heading">Folders</div>
       <div className="folder-tree">
-        {folders.filter(f => f.parent === null).map(folder => (
-          <div key={folder.id}>
-            <button
-              className={`tree-item ${activeFolder === folder.id ? "selected" : ""}`}
-              onClick={() => {
-                setSection("files");
-                setActiveFolder(folder.id);
-              }}
-            >
-              <Folder size={17} />
-              <span>{folder.name}</span>
-            </button>
-            {folders.filter(child => child.parent === folder.id).map(child => (
-              <button
-                key={child.id}
-                className={`tree-item tree-child ${activeFolder === child.id ? "selected" : ""}`}
-                onClick={() => {
-                  setSection("files");
-                  setActiveFolder(child.id);
-                }}
-              >
-                <Folder size={16} />
-                <span>{child.name}</span>
-              </button>
-            ))}
-          </div>
+        {folders.filter(f => f.parent === null || f.parent === undefined).map(folder => (
+          <FolderTreeNode
+            key={folder.id}
+            folder={folder}
+            folders={folders}
+            activeFolder={activeFolder}
+            onOpen={folderId => { setSection("files"); setActiveFolder(folderId); }}
+          />
         ))}
       </div>
 
@@ -181,7 +186,14 @@ function App() {
     const numericId = Number(savedFolder);
     return Number.isNaN(numericId) ? savedFolder : numericId;
   });
-  const [section, setSection] = useState("files");
+  const [section, setSection] = useState(() => {
+    const savedSection = localStorage.getItem("folderSpaceSection");
+    return ["files", "recent", "shared", "favorites", "trash"].includes(savedSection) ? savedSection : "files";
+  });
+  // Sample capacity: 500 GiB. Change this constant for a different plan, or replace it
+  // with a value returned by your live storage/quota configuration endpoint.
+  const [storageCapacity] = useState(500 * 1024 ** 3);
+  const [storageUsed, setStorageUsed] = useState(0);
   const [query, setQuery] = useState("");
   const [view, setView] = useState("grid");
   const [sort, setSort] = useState("name");
@@ -573,6 +585,7 @@ function App() {
     sessionStorage.removeItem("folderSpaceToken");
     sessionStorage.removeItem("folderSpaceUsername");
     localStorage.removeItem("folderSpaceActiveFolder");
+    localStorage.removeItem("folderSpaceSection");
     setToken("");
     setUsername("");
     setFolders([]);
@@ -589,6 +602,28 @@ function App() {
       localStorage.setItem("folderSpaceActiveFolder", String(activeFolder));
     }
   }, [activeFolder]);
+
+  useEffect(() => {
+    localStorage.setItem("folderSpaceSection", section);
+  }, [section]);
+
+  // Refresh the storage total from the server. This includes trashed files because
+  // they still occupy disk space until permanently deleted.
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    async function loadStorageUsage() {
+      try {
+        const data = await apiRequest("/files/storage-summary/", {}, token);
+        if (!cancelled) setStorageUsed(Number(data.used_bytes || 0));
+      } catch (error) {
+        // Storage display should not prevent the rest of the file manager from working.
+        console.error("Unable to load storage summary:", error);
+      }
+    }
+    loadStorageUsage();
+    return () => { cancelled = true; };
+  }, [token, files.length]);
 
   useEffect(() => {
     if (!token) return;
@@ -683,6 +718,8 @@ function App() {
           onNewFolder={() => setShowNewFolder(true)}
           username={username}
           onLogout={handleLogout}
+          storageUsed={storageUsed}
+          storageCapacity={storageCapacity}
         />
       </div>
       {mobileSidebar && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileSidebar(false)} />}

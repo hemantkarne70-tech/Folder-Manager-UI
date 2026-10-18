@@ -189,3 +189,9 @@ export function permanentlyDeleteFileApi(token, fileId) {
 export function emptyTrashApi(token) {
   return apiRequest("/files/empty-trash/", { method: "DELETE" }, token);
 }
+
+
+// Returns the actual bytes currently stored for this user, including Trash.
+export function getStorageSummary(token) {
+  return apiRequest("/files/storage-summary/", {}, token);
+}
