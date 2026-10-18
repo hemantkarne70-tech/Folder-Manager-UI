@@ -32,6 +32,8 @@ class ManagedFileViewSet(viewsets.ModelViewSet):
             return queryset.filter(is_trashed=True).order_by("-deleted_at", "-created_at")
 
         queryset = queryset.filter(is_trashed=False)
+        if self.request.query_params.get("all", "false").lower() == "true":
+            return queryset.order_by("-last_accessed_at", "-created_at")
         folder_id = self.request.query_params.get("folder")
         if folder_id == "null":
             return queryset.filter(folder__isnull=True)
@@ -64,6 +66,8 @@ class ManagedFileViewSet(viewsets.ModelViewSet):
         obj = self.get_object()
         if obj.is_trashed:
             return Response({"detail": "Restore this file before downloading it."}, status=status.HTTP_400_BAD_REQUEST)
+        obj.last_accessed_at = timezone.now()
+        obj.save(update_fields=["last_accessed_at"])
         try:
             file_handle = obj.file.open("rb")
         except (OSError, ValueError):
@@ -71,6 +75,16 @@ class ManagedFileViewSet(viewsets.ModelViewSet):
         response = FileResponse(file_handle, as_attachment=True, filename=obj.name)
         response["X-Content-Type-Options"] = "nosniff"
         return response
+
+    @action(detail=True, methods=["patch"], url_path="favorite")
+    def favorite(self, request, pk=None):
+        obj = self.get_object()
+        value = request.data.get("favorite")
+        if not isinstance(value, bool):
+            raise ValidationError({"favorite": "Provide true or false."})
+        obj.is_favorite = value
+        obj.save(update_fields=["is_favorite", "updated_at"])
+        return Response(self.get_serializer(obj).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["patch"], url_path="move")
     def move(self, request, pk=None):

@@ -14,6 +14,7 @@ import {
   restoreFileApi,
   permanentlyDeleteFileApi,
   emptyTrashApi,
+  setFavoriteApi,
 } from "./api/client";
 import {
   Folder, FolderOpen, Search, Clock3, Users, Star, Trash2,
@@ -77,7 +78,7 @@ function FolderTreeNode({ folder, folders, activeFolder, onOpen, depth = 0 }) {
   );
 }
 
-function Sidebar({ section, setSection, folders, activeFolder, setActiveFolder, onNewFolder, username, onLogout, storageUsed = 0, storageCapacity = 500 * 1024 ** 3 }) {
+function Sidebar({ section, setSection, folders, activeFolder, setActiveFolder, onNewFolder, username, onLogout, storageUsed = 0, storageCapacity = 500 * 1024 ** 3, onSettings }) {
   const items = [
     { id: "files", label: "My Files", icon: Folder },
     { id: "recent", label: "Recent", icon: Clock3 },
@@ -93,9 +94,9 @@ function Sidebar({ section, setSection, folders, activeFolder, setActiveFolder, 
         <span>Folder<span className="brand-light">Space</span></span>
       </div>
 
-      <button className="primary-button new-folder" onClick={onNewFolder}>
+      {section === "files" && <button className="primary-button new-folder" onClick={onNewFolder}>
         <Plus size={19} /> New folder
-      </button>
+      </button>}
 
       <nav className="side-nav">
         {items.map(({ id, label, icon: Icon }) => (
@@ -141,7 +142,7 @@ function Sidebar({ section, setSection, folders, activeFolder, setActiveFolder, 
       </div>
 
       <div className="sidebar-bottom">
-        <button className="nav-item settings-button">
+        <button className={`nav-item settings-button ${section === "settings" ? "active" : ""}`} onClick={onSettings}>
           <Settings size={18} />
           <span>Settings</span>
         </button>
@@ -188,12 +189,15 @@ function App() {
   });
   const [section, setSection] = useState(() => {
     const savedSection = localStorage.getItem("folderSpaceSection");
-    return ["files", "recent", "shared", "favorites", "trash"].includes(savedSection) ? savedSection : "files";
+    return ["files", "recent", "shared", "favorites", "trash", "settings"].includes(savedSection) ? savedSection : "files";
   });
   // Sample capacity: 500 GiB. Change this constant for a different plan, or replace it
   // with a value returned by your live storage/quota configuration endpoint.
   const [storageCapacity] = useState(500 * 1024 ** 3);
   const [storageUsed, setStorageUsed] = useState(0);
+  const [theme, setTheme] = useState(() => localStorage.getItem("folderSpaceTheme") || "light");
+  const [fontScale, setFontScale] = useState(() => Number(localStorage.getItem("folderSpaceFontScale") || 100));
+  const [compactMode, setCompactMode] = useState(() => localStorage.getItem("folderSpaceCompactMode") === "true");
   const [query, setQuery] = useState("");
   const [view, setView] = useState("grid");
   const [sort, setSort] = useState("name");
@@ -221,7 +225,7 @@ function App() {
 
   const visibleFolders = useMemo(() => {
     let result = folders.filter(f => f.parent === activeFolder);
-    if (section === "favorites") result = [];
+    if (section !== "files") result = [];
     if (query.trim()) result = result.filter(f => f.name.toLowerCase().includes(query.toLowerCase()));
     return [...result].sort((a, b) => a.name.localeCompare(b.name));
   }, [folders, activeFolder, query, section]);
@@ -230,12 +234,15 @@ function App() {
     let result = files.filter(f => f.folderId === activeFolder && !f.is_trashed);
 
     if (section === "trash") result = files.filter(f => f.is_trashed);
-    else if (section === "favorites") result = files.filter(f => f.favorite && !f.is_trashed);
-    else if (section === "recent") result = [...files].filter(f => !f.is_trashed).slice(-5).reverse();
+    else if (section === "favorites") result = files.filter(f => (f.is_favorite || f.favorite) && !f.is_trashed);
+    else if (section === "recent") result = files.filter(f => !f.is_trashed)
+      .sort((a, b) => new Date(b.last_accessed_at || b.updated_at || b.created_at) - new Date(a.last_accessed_at || a.updated_at || a.created_at))
+      .slice(0, 10);
     else if (section !== "files") result = [];
 
     if (query.trim()) result = result.filter(f => f.name.toLowerCase().includes(query.toLowerCase()));
 
+    if (section === "recent") return result;
     return [...result].sort((a, b) => {
       if (sort === "size") return b.size - a.size;
       return a.name.localeCompare(b.name);
@@ -388,6 +395,29 @@ function App() {
   useEffect(() => () => {
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
   }, []);
+
+  function getFolderPath(folderId, allFolders) {
+    const parts = [];
+    let cursor = allFolders.find(folder => String(folder.id) === String(folderId));
+    while (cursor) {
+      parts.unshift(cursor.name);
+      cursor = allFolders.find(folder => String(folder.id) === String(cursor.parent));
+    }
+    return parts.length ? `My Files / ${parts.join(" / ")}` : "My Files (root)";
+  }
+
+  async function toggleFavorite(file) {
+    const nextValue = !(file.is_favorite || file.favorite);
+    try {
+      const updated = await setFavoriteApi(token, file.id, nextValue);
+      setFiles(previous => previous.map(item => item.id === file.id
+        ? { ...item, ...updated, favorite: nextValue, is_favorite: nextValue }
+        : item));
+      notify(nextValue ? "Added to Favorites" : "Removed from Favorites");
+    } catch (error) {
+      setApiError(error.message || "Unable to update favorite.");
+    }
+  }
 
   async function handleDownload(file) {
     try {
@@ -607,6 +637,19 @@ function App() {
     localStorage.setItem("folderSpaceSection", section);
   }, [section]);
 
+  useEffect(() => {
+    localStorage.setItem("folderSpaceTheme", theme);
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+  useEffect(() => {
+    localStorage.setItem("folderSpaceFontScale", String(fontScale));
+    document.documentElement.style.setProperty("--user-font-scale", `${fontScale / 100}`);
+  }, [fontScale]);
+  useEffect(() => {
+    localStorage.setItem("folderSpaceCompactMode", String(compactMode));
+    document.documentElement.classList.toggle("compact-mode", compactMode);
+  }, [compactMode]);
+
   // Refresh the storage total from the server. This includes trashed files because
   // they still occupy disk space until permanently deleted.
   useEffect(() => {
@@ -632,7 +675,7 @@ function App() {
 
     async function loadFiles() {
       try {
-        const data = await getFiles(token, activeFolder, section === "trash");
+        const data = await getFiles(token, activeFolder, section === "trash", ["recent", "favorites"].includes(section));
         const records = Array.isArray(data) ? data : data.results;
 
         if (!Array.isArray(records)) {
@@ -645,7 +688,7 @@ function App() {
               ...file,
               folderId: file.folder ?? null,
               type: getFileType(file.name),
-              favorite: false,
+              favorite: Boolean(file.is_favorite),
             }))
           );
         }
@@ -720,6 +763,7 @@ function App() {
           onLogout={handleLogout}
           storageUsed={storageUsed}
           storageCapacity={storageCapacity}
+          onSettings={() => { setSection("settings"); setActiveFolder(null); }}
         />
       </div>
       {mobileSidebar && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileSidebar(false)} />}
@@ -765,12 +809,24 @@ function App() {
               <h1>{section === "files" ? (active?.name || "My Files") : section[0].toUpperCase() + section.slice(1)}</h1>
               <p className="page-subtitle">Keep your files organized and everything within reach.</p>
             </div>
-            {section !== "trash" && <button className="primary-button heading-upload" onClick={() => inputRef.current?.click()}>
+            {section === "files" && <button className="primary-button heading-upload" onClick={() => inputRef.current?.click()}>
               <Upload size={18} /> Upload files
             </button>}
           </div>
 
-          <div className="toolbar">
+          {section === "settings" ? (
+            <div className="settings-panel">
+              <h2>Settings</h2>
+              <p>Personalize your FolderSpace experience. These preferences are saved in this browser.</p>
+              <div className="setting-row"><div><strong>Theme</strong><p>Choose the appearance of the workspace.</p></div><div className="setting-actions"><button className={theme === "light" ? "chosen" : ""} onClick={() => setTheme("light")}>Light</button><button className={theme === "dark" ? "chosen" : ""} onClick={() => setTheme("dark")}>Dark</button></div></div>
+              <div className="setting-row"><div><strong>Font size</strong><p>Increase or decrease text size.</p></div><div className="setting-actions"><button onClick={() => setFontScale(value => Math.max(85, value - 5))} aria-label="Decrease font size">A−</button><span>{fontScale}%</span><button onClick={() => setFontScale(value => Math.min(125, value + 5))} aria-label="Increase font size">A+</button></div></div>
+              <div className="setting-row"><div><strong>Compact layout</strong><p>Show file cards with less spacing.</p></div><label className="setting-toggle"><input type="checkbox" checked={compactMode} onChange={event => setCompactMode(event.target.checked)} /> Enable</label></div>
+              <div className="setting-row"><div><strong>Default view</strong><p>Choose how files are displayed.</p></div><div className="setting-actions"><button className={view === "grid" ? "chosen" : ""} onClick={() => setView("grid")}>Grid</button><button className={view === "list" ? "chosen" : ""} onClick={() => setView("list")}>List</button></div></div>
+              <div className="setting-row"><div><strong>Reset preferences</strong><p>Restore default appearance settings.</p></div><button className="secondary-button" onClick={() => { setTheme("light"); setFontScale(100); setCompactMode(false); setView("grid"); notify("Preferences reset"); }}>Reset</button></div>
+            </div>
+          ) : section === "shared" ? (
+            <div className="settings-panel"><h2>Shared with me</h2><p>Shared folders and files will appear here when sharing is enabled for your live deployment.</p><div className="empty-inline">No items have been shared with this account yet.</div></div>
+          ) : <div className="toolbar">
             <div className="breadcrumbs">
               <button onClick={() => { setActiveFolder(null); setSection("files"); }} title="My Files">
                 <Folder size={17} />
@@ -801,13 +857,13 @@ function App() {
                   </div>
                 )}
               </div>
-              <button className="secondary-button new-folder-toolbar" onClick={() => setShowNewFolder(true)}>
+              {section === "files" && <button className="secondary-button new-folder-toolbar" onClick={() => setShowNewFolder(true)}>
                 <Plus size={17} /> New folder
-              </button>
+              </button>}
             </div>
-          </div>
+          </div>}
 
-          <input
+          {section !== "settings" && section !== "shared" && <input
             ref={inputRef}
             type="file"
             multiple
@@ -816,9 +872,9 @@ function App() {
               handleFiles(e.target.files);
               e.target.value = "";
             }}
-          />
+          />}
 
-          <div
+          {section === "files" && <div
             className={`drop-zone ${dragging ? "drag-active" : ""}`}
             onDragEnter={e => {
               e.preventDefault();
@@ -864,7 +920,7 @@ function App() {
             <div className="drop-title">{dragging ? "Drop your files here" : "Drag & drop files here"}</div>
             <div className="drop-caption">or <button type="button" onClick={e => { e.stopPropagation(); inputRef.current?.click(); }}>browse files</button> from your computer</div>
             <div className="drop-limit">Files upload to your private server storage</div>
-          </div>
+          </div>}
 
           {section === "files" && (
             <div className="section-heading">
@@ -944,7 +1000,7 @@ function App() {
             </div>
           )}
 
-          <div className="section-heading files-heading">
+          {section !== "settings" && section !== "shared" && <><div className="section-heading files-heading">
             <div>
               <h2>{section === "trash" ? "Trash" : section === "favorites" ? "Favorite files" : section === "recent" ? "Recent files" : "Files"} <span>{visibleFiles.length}</span></h2>
               {section === "trash" && <p className="page-subtitle">Items in Trash are permanently deleted after 30 days.</p>}
@@ -1004,13 +1060,14 @@ function App() {
                 </div>
                 <div className="file-info">
                   <strong title={file.name}>{file.name}</strong>
-                  <span>{formatSize(file.size)} <i /> {section === "trash" ? `Deleted ${file.deleted_at ? new Date(file.deleted_at).toLocaleDateString() : "recently"}` : "Stored on server"}</span>
+                  <span>{formatSize(file.size)} <i /> {section === "trash" ? `Deleted ${file.deleted_at ? new Date(file.deleted_at).toLocaleString() : "recently"}` : section === "recent" ? `Last activity: ${new Date(file.last_accessed_at || file.updated_at || file.created_at).toLocaleString()}` : `Uploaded: ${new Date(file.created_at).toLocaleString()}`}</span>
+                  {section === "recent" && <small className="file-path">Path: {getFolderPath(file.folderId, folders)}</small>}
                 </div>
                 <div className="file-card-bottom">
                   <button
                     className={`favorite-button ${file.favorite ? "favorited" : ""}`}
                     aria-label="Toggle favorite"
-                    onClick={() => setFiles(prev => prev.map(f => f.id === file.id ? { ...f, favorite: !f.favorite } : f))}
+                    onClick={() => toggleFavorite(file)}
                   ><Star size={16} fill={file.favorite ? "currentColor" : "none"} /></button>
                   <span className="file-status"><CheckCircle2 size={14} /> Available</span>
                 </div>
@@ -1243,6 +1300,8 @@ function App() {
               </div>
             )}
           </div>
+
+          </>}
 
           <div className="footer-note"><ShieldCheckIcon /> Your files are managed through your authenticated account.</div>
         </section>

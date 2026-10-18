@@ -590,3 +590,42 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .preview-message { padding: 24px; color: #65738a; text-align: center; font-size: 14px; }
 .preview-error { color: #b42318; }
 @media (max-width: 600px) { .preview-header { align-items: flex-start; padding: 12px; } .preview-header-actions { gap: 6px; } .preview-header-actions .secondary-button { padding: 8px; font-size: 11px; } .preview-title-wrap strong { max-width: 38vw; } .preview-content { padding: 8px; } }
+
+
+/* FolderSpace user preferences: theme, font scale, compact layout, Recent paths. */
+:root { --user-font-scale: 1; }
+html { font-size: 16px; }
+/* Scale the whole application, including px-sized labels, buttons, and navigation. */
+html { zoom: var(--user-font-scale, 1); }
+.file-path { display: block; margin-top: 5px; color: var(--text-muted, #78859a); overflow-wrap: anywhere; font-size: .82em; }
+.settings-panel { max-width: 850px; margin: 24px auto; padding: 28px; background: var(--surface, #fff); border: 1px solid var(--border, #e3e8f0); border-radius: 18px; color: var(--text, #1d2939); }
+.settings-panel > h2 { margin: 0 0 8px; }
+.settings-panel > p { color: var(--text-muted, #78859a); margin-bottom: 22px; }
+.setting-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 0; border-top: 1px solid var(--border, #e3e8f0); }
+.setting-row p { margin: 5px 0 0; color: var(--text-muted, #78859a); font-size: .9em; }
+.setting-actions { display: flex; align-items: center; gap: 8px; }
+.setting-actions button { padding: 8px 13px; border: 1px solid var(--border, #dce3ed); border-radius: 9px; background: var(--surface, #fff); color: inherit; cursor: pointer; }
+.setting-actions button.chosen { background: #e7edff; color: #334da5; border-color: #b8c7ff; }
+.setting-toggle { display: flex; align-items: center; gap: 8px; }
+html[data-theme="dark"] { color-scheme: dark; --surface: #172235; --text: #edf2fb; --text-muted: #a8b4c7; --border: #334157; background: #0d1727; color: #edf2fb; }
+html[data-theme="dark"] body { background: #0d1727; color: #edf2fb; }
+html[data-theme="dark"] .main-panel, html[data-theme="dark"] .workspace, html[data-theme="dark"] .topbar { background: #0d1727; color: #edf2fb; }
+html[data-theme="dark"] .settings-panel, html[data-theme="dark"] .file-card, html[data-theme="dark"] .folder-card, html[data-theme="dark"] .modal { background: #172235; color: #edf2fb; border-color: #334157; }
+html[data-theme="dark"] input, html[data-theme="dark"] select, html[data-theme="dark"] textarea { background: #101b2d; color: #edf2fb; border-color: #334157; }
+html[data-theme="dark"] .page-subtitle, html[data-theme="dark"] .file-info span, html[data-theme="dark"] .file-path { color: #a8b4c7; }
+/* Compact layout reduces card padding, grid spacing, and internal whitespace. */
+html.compact-mode .workspace { padding-top: 18px; }
+html.compact-mode .folder-grid,
+html.compact-mode .file-grid { gap: 8px !important; }
+html.compact-mode .file-list { gap: 5px !important; }
+html.compact-mode .folder-card { padding: 8px 10px !important; gap: 8px !important; }
+html.compact-mode .folder-icon { width: 34px !important; height: 34px !important; }
+html.compact-mode .file-card { padding: 8px !important; border-radius: 8px; }
+html.compact-mode .file-card-top { margin-bottom: 8px !important; }
+html.compact-mode .file-glyph { width: 40px !important; height: 40px !important; }
+html.compact-mode .file-card-bottom { margin-top: 7px !important; padding-top: 6px !important; }
+html.compact-mode .section-heading { margin-bottom: 8px !important; }
+html.compact-mode .folder-grid { margin-bottom: 18px !important; }
+html.compact-mode .file-list .file-card { gap: 10px !important; padding: 6px 10px !important; }
+html.compact-mode .file-list .file-card-top { margin: 0 !important; }
+@media (max-width: 600px) { .setting-row { align-items: flex-start; flex-direction: column; } .settings-panel { padding: 18px; } }

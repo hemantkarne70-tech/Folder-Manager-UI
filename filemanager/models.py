@@ -23,7 +23,6 @@ class Folder(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
     class Meta:
         ordering = ["name", "id"]
 
@@ -86,8 +85,13 @@ class ManagedFile(models.Model):
     content_type = models.CharField(max_length=150, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Trash support: files remain stored until permanently deleted.
     is_trashed = models.BooleanField(default=False, db_index=True)
     deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    # Used by Recent to show the last time a file was previewed or downloaded.
+    last_accessed_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    # Persist favorites in the database so they survive refreshes and logins.
+    is_favorite = models.BooleanField(default=False, db_index=True)
 
     class Meta:
         ordering = ["-created_at"]

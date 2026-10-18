@@ -96,12 +96,14 @@ export function moveFileApi(token, fileId, folderId) {
   );
 }
 
-export function getFiles(token, folderId = null, trashed = false) {
+export function getFiles(token, folderId = null, trashed = false, all = false) {
   const query = trashed
     ? "?trashed=true"
-    : folderId === null
-      ? "?folder=null"
-      : `?folder=${encodeURIComponent(folderId)}`;
+    : all
+      ? "?all=true"
+      : folderId === null
+        ? "?folder=null"
+        : `?folder=${encodeURIComponent(folderId)}`;
 
   return apiRequest(`/files/${query}`, {}, token);
 }
@@ -194,4 +196,11 @@ export function emptyTrashApi(token) {
 // Returns the actual bytes currently stored for this user, including Trash.
 export function getStorageSummary(token) {
   return apiRequest("/files/storage-summary/", {}, token);
+}
+
+export function setFavoriteApi(token, fileId, favorite) {
+  return apiRequest(`/files/${fileId}/favorite/`, {
+    method: "PATCH",
+    body: JSON.stringify({ favorite }),
+  }, token);
 }
