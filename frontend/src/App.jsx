@@ -171,7 +171,13 @@ function App() {
   const [apiError, setApiError] = useState("");
   const [files, setFiles] = useState([]);
   const [uploadProgress, setUploadProgress] = useState({});
-  const [activeFolder, setActiveFolder] = useState(null);
+  // Restore the last opened folder when the page is refreshed.
+  const [activeFolder, setActiveFolder] = useState(() => {
+    const savedFolder = localStorage.getItem("folderSpaceActiveFolder");
+    if (savedFolder === null || savedFolder === "root") return null;
+    const numericId = Number(savedFolder);
+    return Number.isNaN(numericId) ? savedFolder : numericId;
+  });
   const [section, setSection] = useState("files");
   const [query, setQuery] = useState("");
   const [view, setView] = useState("grid");
@@ -388,16 +394,23 @@ function App() {
     const incoming = Array.from(fileList || []);
     if (!incoming.length || !token) return;
 
-    for (const file of incoming) {
-      const uploadId = `${Date.now()}-${file.name}`;
+    // Keep every file in the batch targeted at the folder where the upload began.
+    const destinationFolder = activeFolder;
+    const batchId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const results = [];
+
+    // SQLite permits only one writer at a time. Upload sequentially to avoid
+    // overlapping POST /api/files/ requests and database-lock failures.
+    for (let index = 0; index < incoming.length; index += 1) {
+      const file = incoming[index];
+      const uploadId = `${batchId}-${index}-${file.name}`;
+      setUploadProgress(prev => ({ ...prev, [uploadId]: 0 }));
 
       try {
-        setUploadProgress(prev => ({ ...prev, [uploadId]: 0 }));
-
         const uploaded = await uploadFile(
           token,
           file,
-          activeFolder,
+          destinationFolder,
           percent => {
             setUploadProgress(prev => ({
               ...prev,
@@ -406,19 +419,21 @@ function App() {
           }
         );
 
-        setFiles(prev => [
-          {
-            ...uploaded,
-            folderId: uploaded.folder ?? null,
-            type: getFileType(uploaded.name),
-            favorite: false,
-          },
-          ...prev,
-        ]);
+        const normalizedFile = {
+          ...uploaded,
+          folderId: uploaded.folder ?? destinationFolder ?? null,
+          type: getFileType(uploaded.name || file.name),
+          favorite: false,
+        };
 
-        notify(`${file.name} uploaded successfully.`);
+        setFiles(prev => [normalizedFile, ...prev]);
+        results.push({ name: file.name, success: true });
       } catch (error) {
-        setApiError(`${file.name}: ${error.message}`);
+        results.push({
+          name: file.name,
+          success: false,
+          error: error.message || "Upload failed.",
+        });
       } finally {
         setUploadProgress(prev => {
           const next = { ...prev };
@@ -426,6 +441,30 @@ function App() {
           return next;
         });
       }
+    }
+
+    const successful = results.filter(result => result.success);
+    const failed = results.filter(result => !result.success);
+
+    if (successful.length && !failed.length) {
+      notify(
+        successful.length === 1
+          ? `${successful[0].name} uploaded successfully.`
+          : `${successful.length} files uploaded successfully.`
+      );
+    } else if (successful.length && failed.length) {
+      notify(`${successful.length} uploaded; ${failed.length} failed.`);
+      setApiError(
+        `Some files could not be uploaded: ${failed
+          .map(file => `${file.name} (${file.error})`)
+          .join("; ")}`
+      );
+    } else if (failed.length) {
+      setApiError(
+        `Upload failed for: ${failed
+          .map(file => `${file.name} (${file.error})`)
+          .join("; ")}`
+      );
     }
   }
 
@@ -456,6 +495,7 @@ function App() {
   function handleLogout() {
     sessionStorage.removeItem("folderSpaceToken");
     sessionStorage.removeItem("folderSpaceUsername");
+    localStorage.removeItem("folderSpaceActiveFolder");
     setToken("");
     setUsername("");
     setFolders([]);
@@ -463,6 +503,15 @@ function App() {
     setApiError("");
     setActiveFolder(null);
   }
+
+  // Keep the current folder in localStorage so a browser refresh restores it.
+  useEffect(() => {
+    if (activeFolder === null || activeFolder === undefined) {
+      localStorage.setItem("folderSpaceActiveFolder", "root");
+    } else {
+      localStorage.setItem("folderSpaceActiveFolder", String(activeFolder));
+    }
+  }, [activeFolder]);
 
   useEffect(() => {
     if (!token) return;
@@ -657,20 +706,49 @@ function App() {
 
           <div
             className={`drop-zone ${dragging ? "drag-active" : ""}`}
-            onDragEnter={e => { e.preventDefault(); setDragging(true); }}
-            onDragOver={e => e.preventDefault()}
+            onDragEnter={e => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDragging(true);
+            }}
+            onDragOver={e => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+            }}
             onDragLeave={e => {
-              if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false);
+              e.preventDefault();
+              if (!e.currentTarget.contains(e.relatedTarget)) {
+                setDragging(false);
+              }
             }}
             onDrop={e => {
               e.preventDefault();
+              e.stopPropagation();
               setDragging(false);
-              handleFiles(e.dataTransfer.files);
+
+              // Use FileList first, then fall back to DataTransferItemList
+              // for browsers/environments where dataTransfer.files is empty.
+              const transfer = e.dataTransfer;
+              let droppedFiles = Array.from(transfer?.files || []);
+
+              if (!droppedFiles.length && transfer?.items) {
+                droppedFiles = Array.from(transfer.items)
+                  .filter(item => item.kind === "file")
+                  .map(item => item.getAsFile())
+                  .filter(Boolean);
+              }
+
+              if (droppedFiles.length) {
+                handleFiles(droppedFiles);
+              } else {
+                setApiError("No files were detected. Drag actual files from your computer, not a folder shortcut or browser link.");
+              }
             }}
           >
             <div className="drop-icon"><CloudUpload size={28} /></div>
             <div className="drop-title">{dragging ? "Drop your files here" : "Drag & drop files here"}</div>
-            <div className="drop-caption">or <button onClick={() => inputRef.current?.click()}>browse files</button> from your computer</div>
+            <div className="drop-caption">or <button type="button" onClick={e => { e.stopPropagation(); inputRef.current?.click(); }}>browse files</button> from your computer</div>
             <div className="drop-limit">Files upload to your private server storage</div>
           </div>
 

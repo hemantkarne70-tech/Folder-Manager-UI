@@ -34,9 +34,7 @@ export async function apiRequest(path, options = {}, token = null) {
     throw new Error(message);
   }
 
-  if (response.status === 204) {
-    return null;
-  }
+  if (response.status === 204) return null;
 
   return response.json();
 }
@@ -64,10 +62,7 @@ export function createFolder(token, name, parentId = null) {
     "/folders/",
     {
       method: "POST",
-      body: JSON.stringify({
-        name,
-        parent: parentId,
-      }),
+      body: JSON.stringify({ name, parent: parentId }),
     },
     token
   );
@@ -85,11 +80,9 @@ export function renameFolder(token, folderId, name) {
 }
 
 export function deleteFolder(token, folderId) {
-  return apiRequest(
-    `/folders/${folderId}/`,
-    { method: "DELETE" },
-    token
-  );
+  return apiRequest(`/folders/${folderId}/`, {
+    method: "DELETE",
+  }, token);
 }
 
 export function moveFileApi(token, fileId, folderId) {
@@ -131,21 +124,26 @@ export function uploadFile(token, file, folderId, onProgress) {
       try {
         data = JSON.parse(xhr.responseText);
       } catch {
-        // The server may have returned a non-JSON error.
+        // Handle non-JSON server responses below.
       }
 
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve(data);
       } else {
-        reject(new Error(
-          data.detail || data.file?.[0] ||
-          `Upload failed (${xhr.status})`
-        ));
+        reject(
+          new Error(
+            data.detail ||
+              data.file?.[0] ||
+              `Upload failed (${xhr.status})`
+          )
+        );
       }
     };
 
-    xhr.onerror = () => reject(new Error("Network error during upload."));
-    xhr.onabort = () => reject(new Error("Upload cancelled."));
+    xhr.onerror = () =>
+      reject(new Error("Network error during upload."));
+    xhr.onabort = () =>
+      reject(new Error("Upload cancelled."));
 
     const formData = new FormData();
     formData.append("file", file);
@@ -154,7 +152,7 @@ export function uploadFile(token, file, folderId, onProgress) {
       formData.append("folder", String(folderId));
     }
 
-    // Do not set Content-Type manually; the browser supplies the multipart boundary.
+    // Let the browser set the multipart Content-Type boundary.
     xhr.send(formData);
   });
 }
@@ -178,4 +176,3 @@ export function deleteFileApi(token, fileId) {
     token
   );
 }
-
