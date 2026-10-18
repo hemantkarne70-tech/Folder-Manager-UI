@@ -96,9 +96,10 @@ export function moveFileApi(token, fileId, folderId) {
   );
 }
 
-export function getFiles(token, folderId = null) {
-  const query =
-    folderId === null
+export function getFiles(token, folderId = null, trashed = false) {
+  const query = trashed
+    ? "?trashed=true"
+    : folderId === null
       ? "?folder=null"
       : `?folder=${encodeURIComponent(folderId)}`;
 
@@ -175,4 +176,16 @@ export function deleteFileApi(token, fileId) {
     { method: "DELETE" },
     token
   );
+}
+
+export function restoreFileApi(token, fileId) {
+  return apiRequest(`/files/${fileId}/restore/`, { method: "POST" }, token);
+}
+
+export function permanentlyDeleteFileApi(token, fileId) {
+  return apiRequest(`/files/${fileId}/permanent-delete/`, { method: "DELETE" }, token);
+}
+
+export function emptyTrashApi(token) {
+  return apiRequest("/files/empty-trash/", { method: "DELETE" }, token);
 }

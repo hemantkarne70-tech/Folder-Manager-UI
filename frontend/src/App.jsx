@@ -11,6 +11,9 @@ import {
   downloadFile,
   deleteFileApi,
   moveFileApi,
+  restoreFileApi,
+  permanentlyDeleteFileApi,
+  emptyTrashApi,
 } from "./api/client";
 import {
   Folder, FolderOpen, Search, Clock3, Users, Star, Trash2,
@@ -212,10 +215,11 @@ function App() {
   }, [folders, activeFolder, query, section]);
 
   const visibleFiles = useMemo(() => {
-    let result = files.filter(f => f.folderId === activeFolder);
+    let result = files.filter(f => f.folderId === activeFolder && !f.is_trashed);
 
-    if (section === "favorites") result = files.filter(f => f.favorite);
-    else if (section === "recent") result = [...files].slice(-5).reverse();
+    if (section === "trash") result = files.filter(f => f.is_trashed);
+    else if (section === "favorites") result = files.filter(f => f.favorite && !f.is_trashed);
+    else if (section === "recent") result = [...files].filter(f => !f.is_trashed).slice(-5).reverse();
     else if (section !== "files") result = [];
 
     if (query.trim()) result = result.filter(f => f.name.toLowerCase().includes(query.toLowerCase()));
@@ -519,9 +523,41 @@ function App() {
     try {
       await deleteFileApi(token, id);
       setFiles(prev => prev.filter(file => file.id !== id));
-      notify("File deleted successfully.");
+      notify("File moved to Trash.");
     } catch (error) {
       setApiError(error.message);
+    }
+  }
+
+  async function restoreFile(file) {
+    try {
+      const restored = await restoreFileApi(token, file.id);
+      setFiles(prev => prev.filter(item => item.id !== file.id));
+      notify(`Restored ${restored.name || file.name}.`);
+    } catch (error) {
+      setApiError(error.message || "Unable to restore file.");
+    }
+  }
+
+  async function permanentlyDeleteFile(file) {
+    if (!window.confirm(`Permanently delete ${file.name}? This cannot be undone.`)) return;
+    try {
+      await permanentlyDeleteFileApi(token, file.id);
+      setFiles(prev => prev.filter(item => item.id !== file.id));
+      notify("File permanently deleted.");
+    } catch (error) {
+      setApiError(error.message || "Unable to permanently delete file.");
+    }
+  }
+
+  async function emptyTrash() {
+    if (!window.confirm("Permanently delete every file in Trash? This cannot be undone.")) return;
+    try {
+      await emptyTrashApi(token);
+      setFiles(prev => prev.filter(file => !file.is_trashed));
+      notify("Trash emptied.");
+    } catch (error) {
+      setApiError(error.message || "Unable to empty Trash.");
     }
   }
 
@@ -561,7 +597,7 @@ function App() {
 
     async function loadFiles() {
       try {
-        const data = await getFiles(token, activeFolder);
+        const data = await getFiles(token, activeFolder, section === "trash");
         const records = Array.isArray(data) ? data : data.results;
 
         if (!Array.isArray(records)) {
@@ -588,7 +624,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [token, activeFolder]);
+  }, [token, activeFolder, section]);
 
   useEffect(() => {
     if (!token) return;
@@ -692,9 +728,9 @@ function App() {
               <h1>{section === "files" ? (active?.name || "My Files") : section[0].toUpperCase() + section.slice(1)}</h1>
               <p className="page-subtitle">Keep your files organized and everything within reach.</p>
             </div>
-            <button className="primary-button heading-upload" onClick={() => inputRef.current?.click()}>
+            {section !== "trash" && <button className="primary-button heading-upload" onClick={() => inputRef.current?.click()}>
               <Upload size={18} /> Upload files
-            </button>
+            </button>}
           </div>
 
           <div className="toolbar">
@@ -873,8 +909,10 @@ function App() {
 
           <div className="section-heading files-heading">
             <div>
-              <h2>{section === "favorites" ? "Favorite files" : section === "recent" ? "Recent files" : "Files"} <span>{visibleFiles.length}</span></h2>
+              <h2>{section === "trash" ? "Trash" : section === "favorites" ? "Favorite files" : section === "recent" ? "Recent files" : "Files"} <span>{visibleFiles.length}</span></h2>
+              {section === "trash" && <p className="page-subtitle">Items in Trash are permanently deleted after 30 days.</p>}
             </div>
+            {section === "trash" && visibleFiles.length > 0 && <button className="secondary-button" onClick={emptyTrash}>Empty Trash</button>}
           </div>
 
           <div className={view === "grid" ? "file-grid" : "file-list"}>
@@ -882,10 +920,19 @@ function App() {
               <article className="file-card" key={file.id}>
                 <div className="file-card-top">
                   <div className={`file-glyph ${file.type}`}><FileGlyph type={file.type} /></div>
-                  <button className="icon-button tiny" aria-label={`Delete ${file.name}`} title="Delete file" onClick={() => { if (window.confirm(`Delete ${file.name}?`)) deleteFile(file.id); }}>
-                    <Trash2 size={17} />
-                  </button>
-                  <button
+                  {section === "trash" ? <>
+                    <button type="button" className="icon-button tiny" title="Restore file" aria-label={`Restore ${file.name}`} onClick={() => restoreFile(file)}>
+                      <FolderOpen size={17} />
+                    </button>
+                    <button type="button" className="icon-button tiny" title="Permanently delete" aria-label={`Permanently delete ${file.name}`} onClick={() => permanentlyDeleteFile(file)}>
+                      <Trash2 size={17} />
+                    </button>
+                  </> : <>
+                    <button className="icon-button tiny" aria-label={`Move ${file.name} to Trash`} title="Move to Trash" onClick={() => { if (window.confirm(`Move ${file.name} to Trash?`)) deleteFile(file.id); }}>
+                      <Trash2 size={17} />
+                    </button>
+                  </>}
+                  {section !== "trash" && <button
                     type="button"
                     className="icon-button tiny"
                     title="Move file"
@@ -898,8 +945,8 @@ function App() {
                     }}
                   >
                     <FolderInput size={17} />
-                  </button>
-                  <button
+                  </button>}
+                  {section !== "trash" && <button
                     type="button"
                     className="icon-button tiny"
                     title="Preview file"
@@ -907,8 +954,8 @@ function App() {
                     onClick={() => handlePreview(file)}
                   >
                     <Search size={18} />
-                  </button>
-                  <button
+                  </button>}
+                  {section !== "trash" && <button
                     type="button"
                     className="icon-button tiny"
                     title="Download file"
@@ -916,11 +963,11 @@ function App() {
                     onClick={() => handleDownload(file)}
                   >
                     <Download size={18} />
-                  </button>
+                  </button>}
                 </div>
                 <div className="file-info">
                   <strong title={file.name}>{file.name}</strong>
-                  <span>{formatSize(file.size)} <i /> Stored on server</span>
+                  <span>{formatSize(file.size)} <i /> {section === "trash" ? `Deleted ${file.deleted_at ? new Date(file.deleted_at).toLocaleDateString() : "recently"}` : "Stored on server"}</span>
                 </div>
                 <div className="file-card-bottom">
                   <button
@@ -1153,9 +1200,9 @@ function App() {
             {!visibleFiles.length && (
               <div className="empty-state">
                 <div className="empty-icon"><FolderOpen size={28} /></div>
-                <h3>{query ? "No matching items" : "This space is ready for you"}</h3>
-                <p>{query ? "Try a different search term." : "Drop files here or create a folder to get started."}</p>
-                {!query && <button className="secondary-button" onClick={() => setShowNewFolder(true)}><Plus size={16} /> Create folder</button>}
+                <h3>{query ? "No matching items" : section === "trash" ? "Trash is empty" : "This space is ready for you"}</h3>
+                <p>{query ? "Try a different search term." : section === "trash" ? "Files you move to Trash will appear here." : "Drop files here or create a folder to get started."}</p>
+                {!query && section !== "trash" && <button className="secondary-button" onClick={() => setShowNewFolder(true)}><Plus size={16} /> Create folder</button>}
               </div>
             )}
           </div>

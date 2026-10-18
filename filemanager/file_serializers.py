@@ -28,6 +28,8 @@ class ManagedFileSerializer(serializers.ModelSerializer):
             "content_type",
             "created_at",
             "updated_at",
+            "is_trashed",
+            "deleted_at",
             "download_url",
         ]
         read_only_fields = [
@@ -36,6 +38,8 @@ class ManagedFileSerializer(serializers.ModelSerializer):
             "content_type",
             "created_at",
             "updated_at",
+            "is_trashed",
+            "deleted_at",
             "download_url",
         ]
 
