@@ -195,6 +195,11 @@ function App() {
   const [moveTarget, setMoveTarget] = useState(null);
   const [moveFolderId, setMoveFolderId] = useState("");
   const [movingFile, setMovingFile] = useState(false);
+  const [previewFile, setPreviewFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState("");
+  const previewUrlRef = useRef("");
   const inputRef = useRef(null);
 
   const active = folders.find(f => f.id === activeFolder);
@@ -331,6 +336,42 @@ function App() {
       setApiError(error.message || "Unable to delete folder.");
     }
   }
+
+  async function handlePreview(file) {
+    setPreviewFile(file);
+    setPreviewLoading(true);
+    setPreviewError("");
+    setPreviewUrl("");
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = "";
+    }
+
+    try {
+      const blob = await downloadFile(token, file.id);
+      const url = URL.createObjectURL(blob);
+      previewUrlRef.current = url;
+      setPreviewUrl(url);
+    } catch (error) {
+      setPreviewError(error.message || "Unable to preview this file.");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  function closePreview() {
+    setPreviewFile(null);
+    setPreviewError("");
+    setPreviewUrl("");
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = "";
+    }
+  }
+
+  useEffect(() => () => {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+  }, []);
 
   async function handleDownload(file) {
     try {
@@ -861,6 +902,15 @@ function App() {
                   <button
                     type="button"
                     className="icon-button tiny"
+                    title="Preview file"
+                    aria-label={`Preview ${file.name}`}
+                    onClick={() => handlePreview(file)}
+                  >
+                    <Search size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button tiny"
                     title="Download file"
                     aria-label={`Download ${file.name}`}
                     onClick={() => handleDownload(file)}
@@ -990,6 +1040,36 @@ function App() {
                     </button>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {previewFile && (
+              <div className="modal-backdrop preview-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) closePreview(); }}>
+                <section className="preview-modal" role="dialog" aria-modal="true" aria-label={`Preview ${previewFile.name}`}>
+                  <header className="preview-header">
+                    <div className="preview-title-wrap">
+                      <FileGlyph type={getFileType(previewFile.name)} />
+                      <div><strong>{previewFile.name}</strong><span>{formatSize(previewFile.size)}</span></div>
+                    </div>
+                    <div className="preview-header-actions">
+                      <button type="button" className="secondary-button" onClick={() => handleDownload(previewFile)}><Download size={16} /> Download</button>
+                      <button type="button" className="icon-button" onClick={closePreview} aria-label="Close preview"><X size={20} /></button>
+                    </div>
+                  </header>
+                  <div className="preview-content">
+                    {previewLoading && <div className="preview-message">Loading preview…</div>}
+                    {!previewLoading && previewError && <div className="preview-message preview-error">{previewError}</div>}
+                    {!previewLoading && !previewError && previewUrl && (() => {
+                      const type = getFileType(previewFile.name);
+                      if (type === "image") return <img className="preview-image" src={previewUrl} alt={previewFile.name} />;
+                      if (type === "pdf") return <iframe className="preview-frame" src={previewUrl} title={`Preview ${previewFile.name}`} />;
+                      if (type === "video") return <video className="preview-media" src={previewUrl} controls />;
+                      if (/\.(mp3|wav|ogg|m4a)$/i.test(previewFile.name)) return <audio className="preview-audio" src={previewUrl} controls />;
+                      if (/\.(txt|md|csv|json|js|jsx|ts|css|html|py|xml|log)$/i.test(previewFile.name)) return <iframe className="preview-frame" src={previewUrl} title={`Preview ${previewFile.name}`} />;
+                      return <div className="preview-message">Preview is not available for this file type. Use Download to open it on your device.</div>;
+                    })()}
+                  </div>
+                </section>
               </div>
             )}
 
